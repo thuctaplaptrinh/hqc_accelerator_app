@@ -1,0 +1,18 @@
+body {
+    background: #f4f6f9;
+}
+
+.card {
+    border: 0;
+    border-radius: 0.9rem;
+}
+
+.code-area,
+.code-line {
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 0.85rem;
+}
+
+.code-area {
+    white-space: pre;
+}
