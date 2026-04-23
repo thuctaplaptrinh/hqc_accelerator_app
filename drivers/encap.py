@@ -17,14 +17,14 @@ BIT_RESET    = (1 << 0)
 BIT_START    = (1 << 1)
 BIT_OP_ENCAP = (1 << 2)   # OP = 1 → Encap mode
 BIT_WR_EN    = (1 << 6)   # Write enable pulse
-BIT_RD_EN    = (1 << 12)  # Read enable
-BIT_RD_SRC   = (1 << 15)  # Read source: 1 = internal RAM
+BIT_RD_EN    = (1 << 12)  # Read enable (encap_out_en)
+BIT_RD_SRC   = (1 << 15)  # Read source: 1 = wrapper RAM
 
 # RAM selection (bits [9:7])
 RAM_H   = 0
 RAM_S   = 1
-RAM_U   = 2  # THÊM MỚI: Định nghĩa RAM chứa U
-RAM_V   = 3  # THÊM MỚI: Định nghĩa RAM chứa V
+RAM_U   = 2
+RAM_V   = 3
 RAM_D   = 5
 RAM_MSG = 6
 
@@ -34,6 +34,17 @@ def RAM_SEL_BITS(sel: int) -> int:
 # WORD selection (bits [11:10])
 def WORD_SEL_BITS(w: int) -> int:
     return (w & 0x3) << 10
+
+# ============================================================
+# ENCAP OUTPUT TYPE (bits [14:13] = encap_out_type)
+# ============================================================
+OUT_TYPE_SS = 0   # Shared Secret (32-bit)
+OUT_TYPE_D  = 1   # D (32-bit)
+OUT_TYPE_U  = 2   # U (128-bit)
+OUT_TYPE_V  = 3   # V (128-bit)
+
+def OUT_TYPE_BITS(t: int) -> int:
+    return (t & 0x3) << 13
 
 # Status register
 ADDR_STATUS = 0xFFFFFFFF
@@ -46,13 +57,6 @@ D_WORDS     = 16
 
 
 class HQCEncapDriver:
-    """
-    PYNQ driver for HQC Encapsulation.
-
-    Input : H, S (from Keygen), message m
-    Output: Shared Secret (SS), D, U, V
-    """
-
     def __init__(self, bitfile_path: str):
         print("[ENCAP] Loading overlay...")
         self.ol = Overlay(bitfile_path)
@@ -87,6 +91,17 @@ class HQCEncapDriver:
 
     # ----------------------------------------------------------
     # STEP 2: LOAD H / S (128-bit × 139)
+    #
+    # ĐÃ SỬA: Ghi ctrl (word_sel) TRƯỚC, rồi mới ghi wdata SAU.
+    # 
+    # Lý do: buffer_128 cập nhật trên MỌI clock edge dựa trên
+    # word_sel và gpio_wdata. Nếu ghi wdata trước, wdata mới
+    # sẽ bị buffer bắt vào vị trí word_sel CŨ (từ iteration trước)
+    # trong khoảng thời gian giữa 2 AXI transaction.
+    #
+    # Khi ghi ctrl trước: word_sel đã đúng vị trí, wdata cũ bị
+    # bắt tạm (transient), nhưng ngay sau đó wdata mới ghi đè
+    # đúng → giá trị cuối cùng ĐÚNG.
     # ----------------------------------------------------------
     def _load_ram_128(self, data: list, ram_sel: int, label: str):
         assert len(data) == N_MEM_WIDTH, \
@@ -99,8 +114,9 @@ class HQCEncapDriver:
 
             tmp = val_128
             for w in range(4):
-                self._write_wdata(tmp & 0xFFFFFFFF)
+                # ★ QUAN TRỌNG: ctrl (word_sel) TRƯỚC, wdata SAU
                 self._write_ctrl(WORD_SEL_BITS(w))
+                self._write_wdata(tmp & 0xFFFFFFFF)
                 tmp >>= 32
 
             self._write_ctrl(
@@ -118,6 +134,7 @@ class HQCEncapDriver:
 
     # ----------------------------------------------------------
     # STEP 3: LOAD MESSAGE (32-bit × 4)
+    # Message không dùng buffer_128, ghi trực tiếp → không bị race
     # ----------------------------------------------------------
     def load_message(self, msg_words: list):
         assert len(msg_words) == MSG_DEPTH, \
@@ -166,14 +183,15 @@ class HQCEncapDriver:
                 return False
 
     # ----------------------------------------------------------
-    # STEP 6: READ OUTPUTS (SS, D, U, V)
+    # STEP 6: READ OUTPUTS — qua encap_out interface
     # ----------------------------------------------------------
+
     def read_ss(self) -> bytes:
         print("[ENCAP] Reading Shared Secret...")
         result = b""
         for i in range(SS_WORDS):
             self._write_addr(i)
-            self._write_ctrl(BIT_RD_EN | BIT_OP_ENCAP)
+            self._write_ctrl(BIT_RD_EN | BIT_OP_ENCAP | OUT_TYPE_BITS(OUT_TYPE_SS))
             raw = self._read_rdata()
             swapped = _swap_endian_32(raw)
             result += struct.pack('>I', swapped)
@@ -181,33 +199,37 @@ class HQCEncapDriver:
         return result
 
     def read_d(self) -> list:
-        print("[ENCAP] Reading D...")
+        print("[ENCAP] Reading D (via encap_out_type=1)...")
         result = []
         for i in range(D_WORDS):
             self._write_addr(i)
-            self._write_ctrl(BIT_RD_SRC | RAM_SEL_BITS(RAM_D))
+            self._write_ctrl(BIT_RD_EN | BIT_OP_ENCAP | OUT_TYPE_BITS(OUT_TYPE_D))
             result.append(self._read_rdata())
         print(f"[ENCAP] D[0] = 0x{result[0]:08X}")
         return result
 
-    # THÊM MỚI: Hàm đọc bộ nhớ RAM 128-bit nội bộ (U và V)
-    def _read_ram_128(self, ram_sel: int, n_entries: int, label: str) -> list:
-        print(f"[ENCAP] Reading {label} ({n_entries} × 128-bit)...")
+    def _read_encap_128(self, out_type: int, n_entries: int, label: str) -> list:
+        print(f"[ENCAP] Reading {label} ({n_entries} × 128-bit, out_type={out_type})...")
         results = []
         for i in range(n_entries):
             self._write_addr(i)
             val_128 = 0
             for w in range(4):
-                # Bật cờ đọc RAM nội bộ (BIT_RD_SRC), chọn RAM, chọn WORD
-                ctrl_val = BIT_RD_SRC | RAM_SEL_BITS(ram_sel) | WORD_SEL_BITS(w)
+                ctrl_val = (BIT_RD_EN
+                            | BIT_OP_ENCAP
+                            | OUT_TYPE_BITS(out_type)
+                            | WORD_SEL_BITS(w))
                 self._write_ctrl(ctrl_val)
                 val_128 |= (self._read_rdata() << (32 * w))
             results.append(val_128 & ((1 << 128) - 1))
         print(f"[ENCAP] {label} read done.")
         return results
 
-    def read_u(self): return self._read_ram_128(RAM_U, N_MEM_WIDTH, "U")
-    def read_v(self): return self._read_ram_128(RAM_V, N_MEM_WIDTH, "V")
+    def read_u(self) -> list:
+        return self._read_encap_128(OUT_TYPE_U, N_MEM_WIDTH, "U")
+
+    def read_v(self) -> list:
+        return self._read_encap_128(OUT_TYPE_V, N_MEM_WIDTH, "V")
 
     # ----------------------------------------------------------
     # FULL FLOW
@@ -228,7 +250,6 @@ class HQCEncapDriver:
         if not self.wait_done(timeout_sec=30.0):
             raise RuntimeError("HQC Encap TIMEOUT!")
 
-        # THÊM MỚI: Gọi lệnh đọc U và V
         ss = self.read_ss()
         d  = self.read_d()
         u  = self.read_u()
@@ -237,7 +258,6 @@ class HQCEncapDriver:
         print(f"\n[ENCAP] Total: {time.time()-t0:.3f}s")
         print("="*50)
 
-        # Trả về thêm u và v
         return {'ss': ss, 'd': d, 'u': u, 'v': v}
 
 
@@ -284,11 +304,10 @@ def save_ss(ss_bytes: bytes, filepath: str):
 def save_d(d_words: list, filepath: str):
     with open(filepath, 'w') as f:
         for w in d_words:
-            f.write(f"{w:08x}\n")
+            f.write(f"{w:032b}\n")
     print(f"[SAVE] {filepath} ({len(d_words)} words)")
 
 
-# THÊM MỚI: Hàm lưu mảng 128-bit ra file (chuẩn bị cho Decap)
 def save_128bit(data: list, filepath: str):
     with open(filepath, 'w') as f:
         for val in data:
@@ -304,16 +323,14 @@ if __name__ == "__main__":
     BITFILE = "hqc_accelerator.bit"
     driver = HQCEncapDriver(BITFILE)
 
-    h_data    = parse_128bit_file("h_128.in")
-    s_data    = parse_128bit_file("s_128.in")
+    h_data    = parse_128bit_file("h_128_pynq.out")
+    s_data    = parse_128bit_file("s_128_pynq.out")
     msg_words = parse_msg_file("msg_128.in")
 
     result = driver.run_encap(h_data, s_data, msg_words)
 
-    # Lưu kết quả
     save_ss(result['ss'], "ss_output_128.out")
-    save_d(result['d'],   "d_128.in")  
-    
+    save_d(result['d'],   "d_128.in")
     save_128bit(result['u'], "u_128.in")
     save_128bit(result['v'], "v_128.in")
 

@@ -5,9 +5,9 @@ from functools import lru_cache
 
 from flask import Flask, flash, render_template, request
 
-# from drivers.decap import D_DEPTH, N_MEM_WIDTH as DECAP_N_MEM_WIDTH, Y_DEPTH, HQCDecapDriver
-# from drivers.encap import MSG_DEPTH, N_MEM_WIDTH as ENCAP_N_MEM_WIDTH, HQCEncapDriver
-# from drivers.keygen import SEED_WORDS, HQCKeygenDriver
+from drivers.decap import D_DEPTH, N_MEM_WIDTH as DECAP_N_MEM_WIDTH, Y_DEPTH, HQCDecapDriver
+from drivers.encap import MSG_DEPTH, N_MEM_WIDTH as ENCAP_N_MEM_WIDTH, HQCEncapDriver
+from drivers.keygen import SEED_WORDS, HQCKeygenDriver
 
 
 BITFILE_PATH = os.getenv("HQC_BITFILE", "hqc_accelerator.bit")
@@ -17,22 +17,22 @@ app = Flask(__name__)
 app.secret_key = APP_SECRET
 
 
-# @lru_cache(maxsize=1)
-# def _get_keygen_driver() -> HQCKeygenDriver:
-#     # Cache one instance to avoid redundant bitstream reloading.
-#     return HQCKeygenDriver(BITFILE_PATH)
+@lru_cache(maxsize=1)
+def _get_keygen_driver() -> HQCKeygenDriver:
+    # Cache one instance to avoid redundant bitstream reloading.
+    return HQCKeygenDriver(BITFILE_PATH)
 
 
-# @lru_cache(maxsize=1)
-# def _get_encap_driver() -> HQCEncapDriver:
-#     # Cache one instance to avoid redundant bitstream reloading.
-#     return HQCEncapDriver(BITFILE_PATH)
+@lru_cache(maxsize=1)
+def _get_encap_driver() -> HQCEncapDriver:
+    # Cache one instance to avoid redundant bitstream reloading.
+    return HQCEncapDriver(BITFILE_PATH)
 
 
-# @lru_cache(maxsize=1)
-# def _get_decap_driver() -> HQCDecapDriver:
-#     # Cache one instance to avoid redundant bitstream reloading.
-#     return HQCDecapDriver(BITFILE_PATH)
+@lru_cache(maxsize=1)
+def _get_decap_driver() -> HQCDecapDriver:
+    # Cache one instance to avoid redundant bitstream reloading.
+    return HQCDecapDriver(BITFILE_PATH)
 
 
 def _normalize_hex_token(token: str) -> str:
@@ -72,13 +72,13 @@ def keygen():
     sk_seed_text = request.form.get("sk_seed", "")
     pk_seed_text = request.form.get("pk_seed", "")
 
-    # try:
-    #     sk_seed = _parse_hex_list(sk_seed_text, SEED_WORDS)
-    #     pk_seed = _parse_hex_list(pk_seed_text, SEED_WORDS)
-    #     result = _get_keygen_driver().run_keygen(sk_seed=sk_seed, pk_seed=pk_seed)
-    # except Exception as exc:
-    #     flash(f"Keygen failed: {exc}", "danger")
-    #     return render_template("index.html", active_tab="keygen")
+    try:
+        sk_seed = _parse_hex_list(sk_seed_text, SEED_WORDS)
+        pk_seed = _parse_hex_list(pk_seed_text, SEED_WORDS)
+        result = _get_keygen_driver().run_keygen(sk_seed=sk_seed, pk_seed=pk_seed)
+    except Exception as exc:
+        flash(f"Keygen failed: {exc}", "danger")
+        return render_template("index.html", active_tab="keygen")
 
     flash("Key generation completed successfully.", "success")
     return render_template(
@@ -88,12 +88,12 @@ def keygen():
             "sk_seed": sk_seed_text,
             "pk_seed": pk_seed_text,
         },
-        # keygen_result={
-        #     "h": _to_hex_blob(result["h"], 128),
-        #     "s": _to_hex_blob(result["s"], 128),
-        #     "x": _to_hex_blob(result["x"], 16),
-        #     "y": _to_hex_blob(result["y"], 16),
-        # },
+        keygen_result={
+            "h": _to_hex_blob(result["h"], 128),
+            "s": _to_hex_blob(result["s"], 128),
+            "x": _to_hex_blob(result["x"], 16),
+            "y": _to_hex_blob(result["y"], 16),
+        },
     )
 
 
@@ -103,14 +103,14 @@ def encap():
     s_text = request.form.get("s_data", "")
     msg_text = request.form.get("msg_words", "")
 
-    # try:
-    #     h_data = _parse_hex_list(h_text, ENCAP_N_MEM_WIDTH)
-    #     s_data = _parse_hex_list(s_text, ENCAP_N_MEM_WIDTH)
-    #     msg_words = _parse_hex_list(msg_text, MSG_DEPTH)
-    #     result = _get_encap_driver().run_encap(h_data=h_data, s_data=s_data, msg_words=msg_words)
-    # except Exception as exc:
-    #     flash(f"Encapsulation failed: {exc}", "danger")
-    #     return render_template("index.html", active_tab="encap")
+    try:
+        h_data = _parse_hex_list(h_text, ENCAP_N_MEM_WIDTH)
+        s_data = _parse_hex_list(s_text, ENCAP_N_MEM_WIDTH)
+        msg_words = _parse_hex_list(msg_text, MSG_DEPTH)
+        result = _get_encap_driver().run_encap(h_data=h_data, s_data=s_data, msg_words=msg_words)
+    except Exception as exc:
+        flash(f"Encapsulation failed: {exc}", "danger")
+        return render_template("index.html", active_tab="encap")
 
     flash("Encapsulation completed successfully.", "success")
     return render_template(
@@ -121,12 +121,12 @@ def encap():
             "s_data": s_text,
             "msg_words": msg_text,
         },
-        # encap_result={
-        #     "ss": f"0x{result['ss'].hex()}",
-        #     "d": _to_hex_blob(result["d"], 32),
-        #     "u": _to_hex_blob(result["u"], 128),
-        #     "v": _to_hex_blob(result["v"], 128),
-        # },
+        encap_result={
+            "ss": f"0x{result['ss'].hex()}",
+            "d": _to_hex_blob(result["d"], 32),
+            "u": _to_hex_blob(result["u"], 128),
+            "v": _to_hex_blob(result["v"], 128),
+        },
     )
 
 
@@ -139,24 +139,24 @@ def decap():
     y_text = request.form.get("y_words", "")
     d_text = request.form.get("d_words", "")
 
-    # try:
-    #     h_data = _parse_hex_list(h_text, DECAP_N_MEM_WIDTH)
-    #     s_data = _parse_hex_list(s_text, DECAP_N_MEM_WIDTH)
-    #     u_data = _parse_hex_list(u_text, DECAP_N_MEM_WIDTH)
-    #     v_data = _parse_hex_list(v_text, DECAP_N_MEM_WIDTH)
-    #     y_words = _parse_hex_list(y_text, Y_DEPTH)
-    #     d_words = _parse_hex_list(d_text, D_DEPTH)
-    #     ss = _get_decap_driver().run_decap(
-    #         h_data=h_data,
-    #         s_data=s_data,
-    #         u_data=u_data,
-    #         v_data=v_data,
-    #         y_words=y_words,
-    #         d_words=d_words,
-    #     )
-    # except Exception as exc:
-    #     flash(f"Decapsulation failed: {exc}", "danger")
-    #     return render_template("index.html", active_tab="decap")
+    try:
+        h_data = _parse_hex_list(h_text, DECAP_N_MEM_WIDTH)
+        s_data = _parse_hex_list(s_text, DECAP_N_MEM_WIDTH)
+        u_data = _parse_hex_list(u_text, DECAP_N_MEM_WIDTH)
+        v_data = _parse_hex_list(v_text, DECAP_N_MEM_WIDTH)
+        y_words = _parse_hex_list(y_text, Y_DEPTH)
+        d_words = _parse_hex_list(d_text, D_DEPTH)
+        ss = _get_decap_driver().run_decap(
+            h_data=h_data,
+            s_data=s_data,
+            u_data=u_data,
+            v_data=v_data,
+            y_words=y_words,
+            d_words=d_words,
+        )
+    except Exception as exc:
+        flash(f"Decapsulation failed: {exc}", "danger")
+        return render_template("index.html", active_tab="decap")
 
     flash("Decapsulation completed successfully.", "success")
     return render_template(
@@ -170,7 +170,7 @@ def decap():
             "y_words": y_text,
             "d_words": d_text,
         },
-        # decap_result={"ss": f"0x{ss.hex()}"},
+        decap_result={"ss": f"0x{ss.hex()}"},
     )
 
 

@@ -47,7 +47,6 @@ SS_WORDS    = 16
 # HELPER
 # ============================================================
 def _swap_endian_32(val: int) -> int:
-    """Swap byte order of a 32-bit word"""
     return (((val & 0x000000FF) << 24) |
             ((val & 0x0000FF00) <<  8) |
             ((val & 0x00FF0000) >>  8) |
@@ -58,19 +57,11 @@ def _swap_endian_32(val: int) -> int:
 # DECAP DRIVER
 # ============================================================
 class HQCDecapDriver:
-    """
-    PYNQ driver for HQC Decapsulation.
-
-    Input : H, S, U, V, Y, D
-    Output: Shared Secret (SS)
-    """
-
     def __init__(self, bitfile_path: str):
         print("[DECAP] Loading overlay...")
         self.ol = Overlay(bitfile_path)
         self.ip = self.ol.axi_wrapper_0
         print(f"[DECAP] Base address : 0x{self.ip.mmio.base_addr:08X}")
-        print(f"[DECAP] Address range: {self.ip.mmio.length} bytes")
         self._ctrl = 0
 
     # ----------------------------------------------------------
@@ -93,7 +84,6 @@ class HQCDecapDriver:
     # STEP 1: RESET
     # ----------------------------------------------------------
     def reset(self):
-        """Pulse RESET bit"""
         print("[DECAP] Resetting core...")
         self._write_ctrl(BIT_RESET)
         self._write_ctrl(0x00)
@@ -101,15 +91,11 @@ class HQCDecapDriver:
 
     # ----------------------------------------------------------
     # STEP 2: LOAD RAM 128-bit (H, S, U, V)
+    #
+    # ĐÃ SỬA: Ghi ctrl (word_sel) TRƯỚC, wdata SAU
+    # để tránh race condition trên buffer_128.
     # ----------------------------------------------------------
     def _load_ram_128(self, data: list, ram_sel: int, label: str):
-        """
-        Load 128-bit entries into RAM.
-
-        Protocol:
-          - Write 4 words using WORD_SEL
-          - Commit using WR_EN with RAM_SEL
-        """
         print(f"[DECAP] Loading {label} ({len(data)} × 128-bit)...")
 
         for i, val_128 in enumerate(data):
@@ -117,8 +103,9 @@ class HQCDecapDriver:
             tmp = val_128
 
             for w in range(4):
-                self._write_wdata(tmp & 0xFFFFFFFF)
+                # ★ QUAN TRỌNG: ctrl (word_sel) TRƯỚC, wdata SAU
                 self._write_ctrl(WORD_SEL_BITS(w))
+                self._write_wdata(tmp & 0xFFFFFFFF)
                 tmp >>= 32
 
             self._write_ctrl(
@@ -135,16 +122,9 @@ class HQCDecapDriver:
 
     # ----------------------------------------------------------
     # STEP 3: LOAD RAM 32-bit (Y, D)
+    # Y và D không dùng buffer_128 → không bị race
     # ----------------------------------------------------------
     def _load_ram_32(self, data: list, ram_sel: int, label: str):
-        """
-        Load 32-bit entries into RAM.
-
-        Protocol:
-          ctrl = WORD_SEL(0)
-          ctrl = WORD_SEL(0) | RAM_SEL | WR_EN
-          ctrl = 0
-        """
         print(f"[DECAP] Loading {label} ({len(data)} × 32-bit)...")
 
         for i, word in enumerate(data):
@@ -171,10 +151,6 @@ class HQCDecapDriver:
     # STEP 4: START DECAP
     # ----------------------------------------------------------
     def start_decap(self):
-        """
-        Trigger decapsulation:
-          OP=10, pulse START
-        """
         print("[DECAP] Starting decapsulation...")
         self._write_ctrl(OP_DECAP | BIT_START)
         self._write_ctrl(OP_DECAP)
@@ -207,12 +183,6 @@ class HQCDecapDriver:
     # STEP 6: READ SHARED SECRET
     # ----------------------------------------------------------
     def read_ss(self) -> bytes:
-        """
-        Read Shared Secret: 16 × 32-bit.
-
-        Control: RD_EN | OP_DECAP
-        Each word is endian-swapped.
-        """
         print("[DECAP] Reading Shared Secret...")
 
         result = b""
@@ -269,7 +239,6 @@ class HQCDecapDriver:
 # FILE UTILITIES
 # ============================================================
 def parse_128bit_file(filepath: str) -> list:
-    """Read 128-bit binary file"""
     data = []
     with open(filepath, 'r') as f:
         for line in f:
@@ -280,24 +249,12 @@ def parse_128bit_file(filepath: str) -> list:
 
 
 def parse_32bit_bin_file(filepath: str) -> list:
-    """Read 32-bit binary file"""
     data = []
     with open(filepath, 'r') as f:
         for line in f:
             line = line.strip()
             if line:
                 data.append(int(line, 2))
-    return data
-
-
-def parse_32bit_hex_file(filepath: str) -> list:
-    """Read 32-bit hex file"""
-    data = []
-    with open(filepath, 'r') as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                data.append(int(line, 16))
     return data
 
 
@@ -312,12 +269,12 @@ if __name__ == "__main__":
     BITFILE = "hqc_accelerator.bit"
     driver = HQCDecapDriver(BITFILE)
 
-    h_data  = parse_128bit_file("h_128.in")
-    s_data  = parse_128bit_file("s_128.in")
+    h_data  = parse_128bit_file("h_128_pynq.out")
+    s_data  = parse_128bit_file("s_128_pynq.out")
     u_data  = parse_128bit_file("u_128.in")
     v_data  = parse_128bit_file("v_128.in")
-    y_words = parse_32bit_bin_file("y_128.in")
-    d_words = parse_32bit_hex_file("d_128.in")
+    y_words = parse_32bit_bin_file("y_128_pynq.out")
+    d_words = parse_32bit_bin_file("d_128.in")
 
     ss = driver.run_decap(h_data, s_data, u_data, v_data, y_words, d_words)
 

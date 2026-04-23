@@ -165,8 +165,10 @@ class HQCKeygenDriver:
 
         for i in range(n_entries):
             self._write_addr(i)
+            time.sleep(0.00001)
             ctrl_val = (out_sel << 13) | BIT_RD_EN
             self._write_ctrl(ctrl_val)
+            time.sleep(0.00001)
             results.append(self._read_rdata() & 0x7FFF)
 
         print(f"[HQC] {label} done.")
@@ -259,4 +261,3 @@ if __name__ == "__main__":
     save_128bit(result['s'], "s_128_pynq.out")
     save_15bit(result['x'],  "x_128_pynq.out")
     save_15bit(result['y'],  "y_128_pynq.out")
-
