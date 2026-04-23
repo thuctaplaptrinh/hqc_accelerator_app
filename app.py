@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from functools import lru_cache
 
@@ -15,6 +16,15 @@ APP_SECRET = os.getenv("APP_SECRET_KEY", "hqc-demo-secret")
 
 app = Flask(__name__)
 app.secret_key = APP_SECRET
+
+
+def _ensure_event_loop() -> None:
+    """Create an asyncio event loop when Flask handles requests in worker threads."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
 
 
 @lru_cache(maxsize=1)
@@ -69,6 +79,7 @@ def index():
 
 @app.route("/keygen", methods=["POST"])
 def keygen():
+    _ensure_event_loop()
     sk_seed_text = request.form.get("sk_seed", "")
     pk_seed_text = request.form.get("pk_seed", "")
 
@@ -99,6 +110,7 @@ def keygen():
 
 @app.route("/encap", methods=["POST"])
 def encap():
+    _ensure_event_loop()
     h_text = request.form.get("h_data", "")
     s_text = request.form.get("s_data", "")
     msg_text = request.form.get("msg_words", "")
@@ -132,6 +144,7 @@ def encap():
 
 @app.route("/decap", methods=["POST"])
 def decap():
+    _ensure_event_loop()
     h_text = request.form.get("h_data_decap", "")
     s_text = request.form.get("s_data_decap", "")
     u_text = request.form.get("u_data", "")
