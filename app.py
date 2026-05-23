@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import os
 import secrets
@@ -186,6 +187,8 @@ def _hex_to_bytes(hex_str: str, expected_len: int, field_name: str) -> bytes:
 # Background Task Runners
 # ---------------------------------------------------------------------------
 def _async_keygen_task(job_id: str, sk_seed: list[int], pk_seed: list[int]) -> None:
+    # PYNQ Overlay uses asyncio internally — background threads need their own loop
+    asyncio.set_event_loop(asyncio.new_event_loop())
     _update_job_status(job_id, "running")
     try:
         t0 = time.time()
@@ -199,6 +202,7 @@ def _async_keygen_task(job_id: str, sk_seed: list[int], pk_seed: list[int]) -> N
         _update_job_status(job_id, "failed", error=str(exc))
 
 def _async_encap_task(job_id: str, h_data: list[int], s_data: list[int], msg_words: list[int]) -> None:
+    asyncio.set_event_loop(asyncio.new_event_loop())
     _update_job_status(job_id, "running")
     try:
         t0 = time.time()
@@ -211,6 +215,7 @@ def _async_encap_task(job_id: str, h_data: list[int], s_data: list[int], msg_wor
         _update_job_status(job_id, "failed", error=str(exc))
 
 def _async_decap_task(job_id: str, h_data: list[int], s_data: list[int], u_data: list[int], v_data: list[int], y_words: list[int], d_words: list[int]) -> None:
+    asyncio.set_event_loop(asyncio.new_event_loop())
     _update_job_status(job_id, "running")
     try:
         t0 = time.time()
