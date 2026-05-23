@@ -93,13 +93,20 @@ python app.py
 > **Lưu ý:** Trên PC không có module `pynq`, app tự động dùng **Mock Drivers** để giả lập phần cứng FPGA. Mọi chức năng vẫn hoạt động bình thường để kiểm tra giao diện và luồng xử lý.
 
 ### Trên Kria KV260 (Production — Hardware thật)
-
 ```bash
-# 1. Kích hoạt môi trường ảo
-source venv/bin/activate
+# 1. Cài thư viện còn thiếu
+sudo /usr/local/share/pynq-venv/bin/python3 -m pip install r requirements.txt
 
-# 2. Chạy server với quyền root (cần cho PYNQ Overlay)
-sudo python3 app.py
+# 2. Tạo link đến xclbinutil
+sudo ln -s /usr/local/share/pynq-venv/bin/xclbinutil /usr/bin/xclbinutil
+
+# 3. Vào thư mục hqc_accelerator_app
+cd hqc_accelerator_app
+
+# 4. Đảm bảo 2 file .bit và .hwh đã được thêm vào thư mục hqc_accelerator_app.
+
+# 5. Chạy server với quyền root (cần cho PYNQ Overlay)
+sudo -E /usr/local/share/pynq-venv/bin/python3 app.py
 ```
 
 ### Truy cập giao diện
@@ -150,4 +157,4 @@ Nhấn **"⚡ Run All Phases"** để chạy toàn bộ demo tự động, hoặ
 
 ## 📜 License
 
-Graduation Thesis Project — HCMUTE 2026.
+Graduation Thesis Project — HCMUT 2026.
